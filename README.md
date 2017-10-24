@@ -12,7 +12,7 @@ Parameters are passed through environment:
 * `SMTP_USER` - login to `SMTP_SERVER` (also the originator of the e-mail sent)
 * `SMTP_PASS` - password to `SMTP_SERVER`
 * `SMTP_SERVER` - SMTP server address (e.g. `smtp.gmail.com`)
-* `EMAIL_DEST` - destination
+* `EMAIL_DEST` - destination to send e-mail, may be many e-mails separated by `,`
 
 Example shell script to run in loop, to be launched from `tmux` or `screen`:
 

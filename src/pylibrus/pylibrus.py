@@ -156,13 +156,15 @@ class LibrusNotifier(object):
             self._session.add(msg)
         return msg
 
-    def send_email(self, recipient, sender, subject, body_html, body_text):
+    def send_email(self, recipients, sender, subject, body_html, body_text):
+        if not isinstance(recipients, (list, tuple, set)):
+            recipients = [recipients]
         msg = MIMEMultipart("alternative")
         msg.set_charset("utf-8")
 
         msg["Subject"] = subject
         msg["From"] = '"{sender}" <{email}>'.format(sender=sender, email=self._user)
-        msg["To"] = recipient
+        msg["To"] = ', '.join(recipients)
 
         html_part = MIMEText(body_html, 'html')
         text_part = MIMEText(body_text, 'plain')
@@ -173,7 +175,7 @@ class LibrusNotifier(object):
         server.ehlo()
         server.starttls()
         server.login(self._user, self._pwd)
-        server.sendmail(self._user, recipient, msg.as_string())
+        server.sendmail(self._user, recipients, msg.as_string())
         server.close()
 
 
@@ -189,7 +191,7 @@ def main():
     email_password = os.environ['SMTP_PASS']
     email_server = os.environ['SMTP_SERVER']
 
-    email_dest = os.environ['EMAIL_DEST']
+    email_dest = [email.strip() for email in os.environ['EMAIL_DEST'].split(',')]
 
     with LibrusScraper(librus_user, librus_password, debug=False) as scraper:
         msgs = scraper.inbox(folder_id=folder_id)
