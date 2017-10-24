@@ -1,3 +1,5 @@
+from __future__ import print_function
+
 import datetime
 import logging
 import os
@@ -120,16 +122,17 @@ class LibrusScraper(object):
 
 
 class LibrusNotifier(object):
-    def __init__(self, user, pwd, server, port=587):
+    def __init__(self, user, pwd, server, db_name='pylibrus.sqlite', port=587):
         self._user = user
         self._pwd = pwd
         self._server = server
         self._port = port
         self._engine = None
         self._session = None
+        self._db_name = db_name
 
     def _create_db(self):
-        self._engine = create_engine('sqlite:///pylibrus.sqlite')
+        self._engine = create_engine('sqlite:///' + self._db_name)
         Base.metadata.create_all(self._engine)
         session_maker = sessionmaker(bind=self._engine)
         self._session = session_maker()
@@ -177,6 +180,8 @@ class LibrusNotifier(object):
 def main():
     folder_id = 5  # Odebrane
 
+    db_name = os.environ['DB_NAME']
+
     librus_user = os.environ['LIBRUS_USER']
     librus_password = os.environ['LIBRUS_PASS']
 
@@ -188,11 +193,12 @@ def main():
 
     with LibrusScraper(librus_user, librus_password, debug=False) as scraper:
         msgs = scraper.inbox(folder_id=folder_id)
-        with LibrusNotifier(email_user, email_password, email_server) as notifier:
+        with LibrusNotifier(email_user, email_password, email_server, db_name=db_name) as notifier:
             for url, read in msgs:
                 sender, subject, date, contents_html, contents_text = scraper.fetch_msg(url)
                 msg = notifier.add_msg(url, folder_id, sender, date, subject, contents_html, contents_text)
                 if not read and not msg.email_sent:
+                    print('Sending \'{subject}\' to {email}'.format(subject=subject, email=email_dest))
                     notifier.send_email(email_dest, sender, subject, contents_html, contents_text)
                     msg.email_sent = True
 

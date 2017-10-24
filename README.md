@@ -6,6 +6,7 @@ message from a given folder to an e-mail.
 ## Usage
 
 Parameters are passed through environment:
+* `DB_NAME` - file with SQLite database of sent messages
 * `LIBRUS_USER` - login to Librus
 * `LIBRUS_PASS` - password to Librus
 * `SMTP_USER` - login to `SMTP_SERVER` (also the originator of the e-mail sent)
