@@ -1,21 +1,20 @@
-from __future__ import print_function
-
 import datetime
 import logging
 import os
-import requests
 import smtplib
 import sys
-from bs4 import BeautifulSoup
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from fake_useragent.fake import UserAgent
 from http import client as http_client
 from itertools import chain
+
+import requests
+from bs4 import BeautifulSoup
 from sqlalchemy import Column, String, Boolean, DateTime, Integer
 from sqlalchemy.engine import create_engine
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
+from user_agent import generate_user_agent
 
 Base = declarative_base()
 
@@ -44,7 +43,7 @@ class LibrusScraper(object):
         self._login = login
         self._passwd = passwd
         self._session = requests.session()
-        self._ua = UserAgent()
+        self._user_agent = generate_user_agent()
 
         if debug:
             http_client.HTTPConnection.debuglevel = 1
