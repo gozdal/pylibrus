@@ -33,17 +33,27 @@ class Msg(Base):
 
 
 class LibrusScraper(object):
-    LIBRUS_URL = 'https://synergia.librus.pl'
+    API_URL = 'https://api.librus.pl'
+    SYNERGIA_URL = 'https://synergia.librus.pl'
 
     @classmethod
-    def librus_url(cls, path):
-        return cls.LIBRUS_URL + path
+    def synergia_url_from_path(cls, path):
+        return cls.SYNERGIA_URL + path
+
+    @classmethod
+    def api_url_from_path(cls, path):
+        return cls.API_URL + path
+
+    @staticmethod
+    def msg_folder_path(folder_id):
+        return '/wiadomosci/{folder_id}'.format(folder_id=folder_id)
 
     def __init__(self, login, passwd, debug=False):
         self._login = login
         self._passwd = passwd
         self._session = requests.session()
         self._user_agent = generate_user_agent()
+        self._last_folder_msg_path = None
 
         if debug:
             http_client.HTTPConnection.debuglevel = 1
@@ -53,35 +63,55 @@ class LibrusScraper(object):
             requests_log.setLevel(logging.DEBUG)
             requests_log.propagate = True
 
-    def _fix_headers(self, kwargs):
+    def _set_headers(self, referer, kwargs):
         if 'headers' not in kwargs:
             kwargs['headers'] = {}
         kwargs['headers'] = {
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
             'Accept-Language': 'pl',
-            'User-Agent': self._ua.random,
-            'Referer': self.librus_url('/loguj'),
+            'User-Agent': self._user_agent,
+            'Referer': referer,
         }
         return kwargs
 
-    def _post(self, url, **kwargs):
-        self._fix_headers(kwargs)
-        return self._session.post(self.librus_url(url), **kwargs)
+    def _api_post(self, path, referer, **kwargs):
+        self._set_headers(referer, kwargs)
+        return self._session.post(self.api_url_from_path(path), **kwargs)
 
-    def _get(self, url, **kwargs):
-        self._fix_headers(kwargs)
-        return self._session.get(self.librus_url(url), **kwargs)
+    def _api_get(self, path, referer, **kwargs):
+        self._set_headers(referer, kwargs)
+        return self._session.get(self.api_url_from_path(path), **kwargs)
+
+    def _post(self, path, referer, **kwargs):
+        self._set_headers(referer, kwargs)
+        return self._session.post(self.synergia_url_from_path(path), **kwargs)
+
+    def _get(self, path, referer, **kwargs):
+        self._set_headers(referer, kwargs)
+        return self._session.get(self.synergia_url_from_path(path), **kwargs)
 
     def __enter__(self):
-        ret = self._get('/loguj')
-        ret = self._post('/loguj', data={
-            'login': self._login,
-            'passwd': self._passwd,
-            'ed_pass_keydown': "",
-            'ed_pass_keyup': "",
-            'captcha': "",
-            'czy_js': '1',
-        })
+        oauth_auth_frag = '/OAuth/Authorization?client_id=46'
+        oauth_auth_url = self.api_url_from_path(oauth_auth_frag)
+        oauth_grant_frag = '/OAuth/Authorization/Grant?client_id=46'
+        oauth_captcha_frag = '/OAuth/Captcha'
+
+        self._api_get('{oauth_fragment}&response_type=code&scope=mydata'.format(oauth_fragment=oauth_auth_frag),
+                      referer='https://portal.librus.pl/rodzina/synergia/loguj')
+        self._api_post(oauth_captcha_frag,
+                       referer=oauth_auth_url,
+                       data={
+                           'username': self._login,
+                           'is_needed': 1,
+                       })
+        self._api_post(oauth_auth_frag,
+                       referer=oauth_auth_url,
+                       data={
+                           'action': 'login',
+                           'login': self._login,
+                           'pass': self._passwd,
+                       })
+        self._api_get(oauth_grant_frag, referer=oauth_auth_url)
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
@@ -91,8 +121,9 @@ class LibrusScraper(object):
         header = soup.find_all(text=name)
         return header[0].parent.parent.parent.find_all('td')[1].text.strip()
 
-    def fetch_msg(self, link):
-        msg_page = self._get(link).text
+    def fetch_msg(self, msg_path):
+        msg_page = self._get(msg_path,
+                             referer=self.synergia_url_from_path(self._last_folder_msg_path)).text
         soup = BeautifulSoup(msg_page, 'html.parser')
         sender = self._find_msg_header(soup, 'Nadawca')
         subject = self._find_msg_header(soup, 'Temat')
@@ -101,8 +132,10 @@ class LibrusScraper(object):
         contents = soup.find_all(attrs={'class': 'container-message-content'})[0]
         return sender, subject, date, str(contents), contents.text
 
-    def inbox(self, folder_id=5):
-        ret = self._get('/wiadomosci/{folder_id}'.format(folder_id=folder_id))
+    def msgs_from_folder(self, folder_id):
+        self._last_folder_msg_path = self.msg_folder_path(folder_id)
+        ret = self._get(self._last_folder_msg_path,
+                        referer=self.synergia_url_from_path('/rodzic/index'))
         inbox_html = ret.text
         soup = BeautifulSoup(inbox_html, 'html.parser')
         lines0 = soup.find_all('tr', {'class': 'line0'})
@@ -158,6 +191,7 @@ class LibrusNotifier(object):
     def send_email(self, recipients, sender, subject, body_html, body_text):
         if not isinstance(recipients, (list, tuple, set)):
             recipients = [recipients]
+
         msg = MIMEMultipart("alternative")
         msg.set_charset("utf-8")
 
@@ -170,34 +204,38 @@ class LibrusNotifier(object):
         msg.attach(html_part)
         msg.attach(text_part)
 
-        server = smtplib.SMTP(self._server, self._port)
-        server.ehlo()
-        server.starttls()
-        server.login(self._user, self._pwd)
-        server.sendmail(self._user, recipients, msg.as_string())
-        server.close()
+        if self._server and self._pwd:
+            server = smtplib.SMTP(self._server, self._port)
+            server.ehlo()
+            server.starttls()
+            server.login(self._user, self._pwd)
+            server.sendmail(self._user, recipients, msg.as_string())
+            server.close()
+        else:
+            print('Would have send {msg}'.format(msg=msg.as_string()))
 
 
 def main():
-    folder_id = 5  # Odebrane
+    inbox_folder_id = 5  # Odebrane
 
     db_name = os.environ['DB_NAME']
 
     librus_user = os.environ['LIBRUS_USER']
     librus_password = os.environ['LIBRUS_PASS']
+    librus_debug = os.environ.get('LIBRUS_DEBUG', False)
 
-    email_user = os.environ['SMTP_USER']
-    email_password = os.environ['SMTP_PASS']
-    email_server = os.environ['SMTP_SERVER']
+    email_user = os.environ.get('SMTP_USER', 'Default user')
+    email_password = os.environ.get('SMTP_PASS')
+    email_server = os.environ.get('SMTP_SERVER')
 
     email_dest = [email.strip() for email in os.environ['EMAIL_DEST'].split(',')]
 
-    with LibrusScraper(librus_user, librus_password, debug=False) as scraper:
-        msgs = scraper.inbox(folder_id=folder_id)
+    with LibrusScraper(librus_user, librus_password, debug=librus_debug) as scraper:
         with LibrusNotifier(email_user, email_password, email_server, db_name=db_name) as notifier:
-            for url, read in msgs:
-                sender, subject, date, contents_html, contents_text = scraper.fetch_msg(url)
-                msg = notifier.add_msg(url, folder_id, sender, date, subject, contents_html, contents_text)
+            msgs = scraper.msgs_from_folder(inbox_folder_id)
+            for msg_path, read in msgs:
+                sender, subject, date, contents_html, contents_text = scraper.fetch_msg(msg_path)
+                msg = notifier.add_msg(msg_path, inbox_folder_id, sender, date, subject, contents_html, contents_text)
                 if not read and not msg.email_sent:
                     print('Sending \'{subject}\' to {email}'.format(subject=subject, email=email_dest))
                     notifier.send_email(email_dest, sender, subject, contents_html, contents_text)
