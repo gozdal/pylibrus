@@ -142,7 +142,10 @@ class LibrusScraper(object):
         lines1 = soup.find_all('tr', {'class': 'line1'})
         msgs = []
         for msg in chain(lines0, lines1):
-            link = msg.find_all('a')[0]['href'].strip()
+            all_a_elems = msg.find_all('a')
+            if not all_a_elems:
+                continue
+            link = all_a_elems[0]['href'].strip()
             read = True
             for td in msg.find_all('td'):
                 if 'bold' in td.get('style', ''):
