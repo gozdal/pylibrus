@@ -10,3 +10,4 @@ user_agent = "*"
 SQLAlchemy = "*"
 
 [dev-packages]
+black = "*"

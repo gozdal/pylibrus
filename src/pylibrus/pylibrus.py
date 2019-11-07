@@ -20,7 +20,7 @@ Base = declarative_base()
 
 
 class Msg(Base):
-    __tablename__ = 'messages'
+    __tablename__ = "messages"
 
     url = Column(String, primary_key=True)
     folder = Column(Integer)
@@ -33,8 +33,8 @@ class Msg(Base):
 
 
 class LibrusScraper(object):
-    API_URL = 'https://api.librus.pl'
-    SYNERGIA_URL = 'https://synergia.librus.pl'
+    API_URL = "https://api.librus.pl"
+    SYNERGIA_URL = "https://synergia.librus.pl"
 
     @classmethod
     def synergia_url_from_path(cls, path):
@@ -46,7 +46,7 @@ class LibrusScraper(object):
 
     @staticmethod
     def msg_folder_path(folder_id):
-        return '/wiadomosci/{folder_id}'.format(folder_id=folder_id)
+        return f"/wiadomosci/{folder_id}"
 
     def __init__(self, login, passwd, debug=False):
         self._login = login
@@ -64,13 +64,13 @@ class LibrusScraper(object):
             requests_log.propagate = True
 
     def _set_headers(self, referer, kwargs):
-        if 'headers' not in kwargs:
-            kwargs['headers'] = {}
-        kwargs['headers'] = {
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'pl',
-            'User-Agent': self._user_agent,
-            'Referer': referer,
+        if "headers" not in kwargs:
+            kwargs["headers"] = {}
+        kwargs["headers"] = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "pl",
+            "User-Agent": self._user_agent,
+            "Referer": referer,
         }
         return kwargs
 
@@ -91,64 +91,58 @@ class LibrusScraper(object):
         return self._session.get(self.synergia_url_from_path(path), **kwargs)
 
     def __enter__(self):
-        oauth_auth_frag = '/OAuth/Authorization?client_id=46'
+        oauth_auth_frag = "/OAuth/Authorization?client_id=46"
         oauth_auth_url = self.api_url_from_path(oauth_auth_frag)
-        oauth_grant_frag = '/OAuth/Authorization/Grant?client_id=46'
-        oauth_captcha_frag = '/OAuth/Captcha'
+        oauth_grant_frag = "/OAuth/Authorization/Grant?client_id=46"
+        oauth_captcha_frag = "/OAuth/Captcha"
 
-        self._api_get('{oauth_fragment}&response_type=code&scope=mydata'.format(oauth_fragment=oauth_auth_frag),
-                      referer='https://portal.librus.pl/rodzina/synergia/loguj')
-        self._api_post(oauth_captcha_frag,
-                       referer=oauth_auth_url,
-                       data={
-                           'username': self._login,
-                           'is_needed': 1,
-                       })
-        self._api_post(oauth_auth_frag,
-                       referer=oauth_auth_url,
-                       data={
-                           'action': 'login',
-                           'login': self._login,
-                           'pass': self._passwd,
-                       })
+        self._api_get(
+            f"{oauth_auth_frag}&response_type=code&scope=mydata",
+            referer="https://portal.librus.pl/rodzina/synergia/loguj",
+        )
+        self._api_post(oauth_captcha_frag, referer=oauth_auth_url, data={"username": self._login, "is_needed": 1,})
+        self._api_post(
+            oauth_auth_frag,
+            referer=oauth_auth_url,
+            data={"action": "login", "login": self._login, "pass": self._passwd,},
+        )
         self._api_get(oauth_grant_frag, referer=oauth_auth_url)
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
         pass
 
-    def _find_msg_header(self, soup, name):
+    @staticmethod
+    def _find_msg_header(soup, name):
         header = soup.find_all(text=name)
-        return header[0].parent.parent.parent.find_all('td')[1].text.strip()
+        return header[0].parent.parent.parent.find_all("td")[1].text.strip()
 
     def fetch_msg(self, msg_path):
-        msg_page = self._get(msg_path,
-                             referer=self.synergia_url_from_path(self._last_folder_msg_path)).text
-        soup = BeautifulSoup(msg_page, 'html.parser')
-        sender = self._find_msg_header(soup, 'Nadawca')
-        subject = self._find_msg_header(soup, 'Temat')
-        date_string = self._find_msg_header(soup, 'Wysłano')
-        date = datetime.datetime.strptime(date_string, '%Y-%m-%d %H:%M:%S')
-        contents = soup.find_all(attrs={'class': 'container-message-content'})[0]
+        msg_page = self._get(msg_path, referer=self.synergia_url_from_path(self._last_folder_msg_path)).text
+        soup = BeautifulSoup(msg_page, "html.parser")
+        sender = self._find_msg_header(soup, "Nadawca")
+        subject = self._find_msg_header(soup, "Temat")
+        date_string = self._find_msg_header(soup, "Wysłano")
+        date = datetime.datetime.strptime(date_string, "%Y-%m-%d %H:%M:%S")
+        contents = soup.find_all(attrs={"class": "container-message-content"})[0]
         return sender, subject, date, str(contents), contents.text
 
     def msgs_from_folder(self, folder_id):
         self._last_folder_msg_path = self.msg_folder_path(folder_id)
-        ret = self._get(self._last_folder_msg_path,
-                        referer=self.synergia_url_from_path('/rodzic/index'))
+        ret = self._get(self._last_folder_msg_path, referer=self.synergia_url_from_path("/rodzic/index"))
         inbox_html = ret.text
-        soup = BeautifulSoup(inbox_html, 'html.parser')
-        lines0 = soup.find_all('tr', {'class': 'line0'})
-        lines1 = soup.find_all('tr', {'class': 'line1'})
+        soup = BeautifulSoup(inbox_html, "html.parser")
+        lines0 = soup.find_all("tr", {"class": "line0"})
+        lines1 = soup.find_all("tr", {"class": "line1"})
         msgs = []
         for msg in chain(lines0, lines1):
-            all_a_elems = msg.find_all('a')
+            all_a_elems = msg.find_all("a")
             if not all_a_elems:
                 continue
-            link = all_a_elems[0]['href'].strip()
+            link = all_a_elems[0]["href"].strip()
             read = True
-            for td in msg.find_all('td'):
-                if 'bold' in td.get('style', ''):
+            for td in msg.find_all("td"):
+                if "bold" in td.get("style", ""):
                     read = False
                     break
 
@@ -157,7 +151,7 @@ class LibrusScraper(object):
 
 
 class LibrusNotifier(object):
-    def __init__(self, user, pwd, server, db_name='pylibrus.sqlite', port=587):
+    def __init__(self, user, pwd, server, db_name="pylibrus.sqlite", port=587):
         self._user = user
         self._pwd = pwd
         self._server = server
@@ -167,7 +161,7 @@ class LibrusNotifier(object):
         self._db_name = db_name
 
     def _create_db(self):
-        self._engine = create_engine('sqlite:///' + self._db_name)
+        self._engine = create_engine("sqlite:///" + self._db_name)
         Base.metadata.create_all(self._engine)
         session_maker = sessionmaker(bind=self._engine)
         self._session = session_maker()
@@ -186,8 +180,15 @@ class LibrusNotifier(object):
     def add_msg(self, url, folder_id, sender, date, subject, contents_html, contents_text):
         msg = self._session.query(Msg).get(url)
         if not msg:
-            msg = Msg(url=url, folder=folder_id, sender=sender, date=date, subject=subject,
-                      contents_html=contents_html, contents_text=contents_text)
+            msg = Msg(
+                url=url,
+                folder=folder_id,
+                sender=sender,
+                date=date,
+                subject=subject,
+                contents_html=contents_html,
+                contents_text=contents_text,
+            )
             self._session.add(msg)
         return msg
 
@@ -199,11 +200,11 @@ class LibrusNotifier(object):
         msg.set_charset("utf-8")
 
         msg["Subject"] = subject
-        msg["From"] = '"{sender}" <{email}>'.format(sender=sender, email=self._user)
-        msg["To"] = ', '.join(recipients)
+        msg["From"] = f'"{sender}" <{self._user}>'
+        msg["To"] = ", ".join(recipients)
 
-        html_part = MIMEText(body_html, 'html')
-        text_part = MIMEText(body_text, 'plain')
+        html_part = MIMEText(body_html, "html")
+        text_part = MIMEText(body_text, "plain")
         msg.attach(html_part)
         msg.attach(text_part)
 
@@ -215,23 +216,23 @@ class LibrusNotifier(object):
             server.sendmail(self._user, recipients, msg.as_string())
             server.close()
         else:
-            print('Would have send {msg}'.format(msg=msg.as_string()))
+            print(f"Would have send {msg.as_string()}")
 
 
 def main():
     inbox_folder_id = 5  # Odebrane
 
-    db_name = os.environ['DB_NAME']
+    db_name = os.environ["DB_NAME"]
 
-    librus_user = os.environ['LIBRUS_USER']
-    librus_password = os.environ['LIBRUS_PASS']
-    librus_debug = os.environ.get('LIBRUS_DEBUG', False)
+    librus_user = os.environ["LIBRUS_USER"]
+    librus_password = os.environ["LIBRUS_PASS"]
+    librus_debug = os.environ.get("LIBRUS_DEBUG", False)
 
-    email_user = os.environ.get('SMTP_USER', 'Default user')
-    email_password = os.environ.get('SMTP_PASS')
-    email_server = os.environ.get('SMTP_SERVER')
+    email_user = os.environ.get("SMTP_USER", "Default user")
+    email_password = os.environ.get("SMTP_PASS")
+    email_server = os.environ.get("SMTP_SERVER")
 
-    email_dest = [email.strip() for email in os.environ['EMAIL_DEST'].split(',')]
+    email_dest = [email.strip() for email in os.environ["EMAIL_DEST"].split(",")]
 
     with LibrusScraper(librus_user, librus_password, debug=librus_debug) as scraper:
         with LibrusNotifier(email_user, email_password, email_server, db_name=db_name) as notifier:
@@ -240,10 +241,10 @@ def main():
                 sender, subject, date, contents_html, contents_text = scraper.fetch_msg(msg_path)
                 msg = notifier.add_msg(msg_path, inbox_folder_id, sender, date, subject, contents_html, contents_text)
                 if not read and not msg.email_sent:
-                    print('Sending \'{subject}\' to {email}'.format(subject=subject, email=email_dest))
+                    print(f"Sending '{subject}' to {email_dest}")
                     notifier.send_email(email_dest, sender, subject, contents_html, contents_text)
                     msg.email_sent = True
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     sys.exit(main())
