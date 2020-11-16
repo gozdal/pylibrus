@@ -3,7 +3,14 @@
 Message scraper from crappy Librus Synergia gradebook. Forwards every new
 message from a given folder to an e-mail.
 
-## Usage
+## Linux installation (semi manual)
+
+* Make sure you have installed `git`, `virtualenv` and `python3`
+* Checkout **pylibrus** repository and run `install.sh` script
+* Setup parameters in `check_librus.sh` (path provided in `install.sh` output)
+* Setup cron entry to run script periodically (details in `install.sh` output)
+
+## Manual usage
 
 Parameters are passed through environment:
 * `DB_NAME` - file with SQLite database of sent messages
@@ -43,6 +50,5 @@ done
 ## Potential improvements
 
 * support HTML messages
-* support attachments
 * support announcements
 * support calendar
