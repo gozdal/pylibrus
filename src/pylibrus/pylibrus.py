@@ -1,3 +1,4 @@
+import base64
 import datetime
 import logging
 import os
@@ -150,6 +151,12 @@ class LibrusScraper(object):
         return msgs
 
 
+def format_sender(sender_info, sender_email):
+    sender_b64 = base64.b64encode(sender_info.encode())
+    sender_info_encoded = '=?utf-8?B?' + sender_b64.decode() + '?='
+    return f'"{sender_info_encoded}" <{sender_email}>'
+
+
 class LibrusNotifier(object):
     def __init__(self, user, pwd, server, db_name="pylibrus.sqlite", port=587):
         self._user = user
@@ -200,7 +207,7 @@ class LibrusNotifier(object):
         msg.set_charset("utf-8")
 
         msg["Subject"] = subject
-        msg["From"] = f'"{sender}" <{self._user}>'
+        msg["From"] = format_sender(sender, self._user)
         msg["To"] = ", ".join(recipients)
 
         html_part = MIMEText(body_html, "html")
@@ -241,7 +248,7 @@ def main():
                 sender, subject, date, contents_html, contents_text = scraper.fetch_msg(msg_path)
                 msg = notifier.add_msg(msg_path, inbox_folder_id, sender, date, subject, contents_html, contents_text)
                 if not read and not msg.email_sent:
-                    print(f"Sending '{subject}' to {email_dest}")
+                    print(f"Sending '{subject}' to {email_dest} from {sender}")
                     notifier.send_email(email_dest, sender, subject, contents_html, contents_text)
                     msg.email_sent = True
 
