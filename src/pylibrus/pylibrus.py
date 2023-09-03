@@ -146,20 +146,11 @@ class LibrusScraper(object):
     def __enter__(self):
         oauth_auth_frag = "/OAuth/Authorization?client_id=46"
         oauth_auth_url = self.api_url_from_path(oauth_auth_frag)
-        oauth_grant_frag = "/OAuth/Authorization/Grant?client_id=46"
-        oauth_captcha_frag = "/OAuth/Captcha"
+        oauth_2fa_frag = "/OAuth/Authorization/2FA?client_id=46"
 
         self._api_get(
             f"{oauth_auth_frag}&response_type=code&scope=mydata",
             referer="https://portal.librus.pl/rodzina/synergia/loguj",
-        )
-        self._api_post(
-            oauth_captcha_frag,
-            referer=oauth_auth_url,
-            data={
-                "username": self._login,
-                "is_needed": 1,
-            },
         )
         self._api_post(
             oauth_auth_frag,
@@ -170,7 +161,7 @@ class LibrusScraper(object):
                 "pass": self._passwd,
             },
         )
-        self._api_get(oauth_grant_frag, referer=oauth_auth_url)
+        self._api_get(oauth_2fa_frag, referer=oauth_auth_url)
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
@@ -251,7 +242,7 @@ class LibrusScraper(object):
             else:
                 reason = FAILED_TO_DOWNLOAD_ATTACHMENT_DATA
 
-            if get_attach_resp:
+            if get_attach_resp is not None:
                 if get_attach_resp.ok:
                     attach_data = get_attach_resp.content
                 else:
