@@ -1,0 +1,45 @@
+[global]
+
+; Decide which messages should be sent.
+; Possible values:
+;   - unsent - messages that were not previously sent
+;   - unread - meesages that were unread  
+# send_message=unread
+
+; If attachments should be forwarded with the message content
+; Possible values: true, false
+# fetch_attachments=true
+
+; Name of sqlite DB file that will be used by pylibrus.
+; File will be created if absent.
+# db_name=pylibrus.sqlite
+
+; How old messages should still be forwarded.
+; Value 4 means that only messages younger than 4 days will be forwarded.
+# max_age_of_sending_msg_days=4
+
+; Should debug messages be enabled.
+; Posible values: true, false
+# debug=false
+
+; This parameter tell pylibrus how long it should sleep
+; between next check for new messages. If this values is 0 or less
+; then program will check for messages only once.
+#loop_and_sleep_seconds=0
+
+; This is example configuration for forwarding messages to email
+[user:ChildName]
+librus_user=
+librus_pass=
+smtp_user=
+smtp_pass=
+smtp_server=
+smtp_port=587
+; email_dest is comma separated list of emails that will receive messages from Librus
+email_dest=
+
+; This is example configuration for forwarding messages to webhook
+#[user:ChildName2]
+#librus_user=
+#librus_pass=
+#webhook=
