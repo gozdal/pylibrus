@@ -23,9 +23,8 @@
 # debug=false
 
 ; This parameter tell pylibrus how long it should sleep
-; between next check for new messages. If this values is 0 or less
-; then program will check for messages only once.
-#loop_and_sleep_seconds=0
+; between next Librus users so that new connection is not throttled
+# sleep_between_librus_users=180
 
 ; This is example configuration for forwarding messages to email
 [user:ChildName]

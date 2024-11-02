@@ -56,7 +56,7 @@ class PyLibrusConfig:
     max_age_of_sending_msg_days: int = 4
     db_name: str = "pylibrus.sqlite"
     debug: bool = False
-    loop_and_sleep_seconds: int = 0
+    sleep_between_librus_users: int = 180
     inbox_folder_id: int = dataclasses.field(default=5, init=False)  # Odebrane
 
 
@@ -75,7 +75,7 @@ class PyLibrusConfig:
             max_age_of_sending_msg_days=config["global"].getint(PyLibrusConfig.max_age_of_sending_msg_days.__name__, None),
             db_name=config["global"].get(PyLibrusConfig.db_name.__name__, None),
             debug=config["global"].getboolean(PyLibrusConfig.debug.__name__, None),
-            loop_and_sleep_seconds=config["global"].getint(PyLibrusConfig.loop_and_sleep_seconds.__name__, None),
+            sleep_between_librus_users=config["global"].getint(PyLibrusConfig.sleep_between_librus_users.__name__, None),
         )
 
     @classmethod
@@ -658,45 +658,35 @@ def main():
         notifier.notify(msg)
         return 2
 
-    while True:
-        for librus_user in librus_users:
-            with LibrusScraper(librus_user.login, librus_user.password, debug=PYLIBRUS_CONFIG.debug) as scraper:
-                with LibrusNotifier(librus_user, db_name=PYLIBRUS_CONFIG.db_name) as notifier:
-                    msgs = scraper.msgs_from_folder(PYLIBRUS_CONFIG.inbox_folder_id)
-                    for msg_path, read in msgs:
+    for i, librus_user in enumerate(librus_users):
+        with LibrusScraper(librus_user.login, librus_user.password, debug=PYLIBRUS_CONFIG.debug) as scraper:
+            with LibrusNotifier(librus_user, db_name=PYLIBRUS_CONFIG.db_name) as notifier:
+                msgs = scraper.msgs_from_folder(PYLIBRUS_CONFIG.inbox_folder_id)
+                for msg_path, read in msgs:
 
-                        msg = notifier.get_msg(msg_path)
+                    msg = notifier.get_msg(msg_path)
 
-                        if not msg:
-                            debug(f"Fetch {msg_path}")
+                    if not msg:
+                        debug(f"Fetch {msg_path}")
 
-                            fetch_attachment_content = PYLIBRUS_CONFIG.fetch_attachments and librus_user.notify.is_email()
-                            msg_content_or_none = scraper.fetch_msg(msg_path, fetch_attachment_content)
-                            if msg_content_or_none is None:
-                                continue
-                            sender, subject, date, contents_html, contents_text, attachments = msg_content_or_none
-                            msg = notifier.add_msg(
-                                msg_path, PYLIBRUS_CONFIG.inbox_folder_id, sender, date, subject, contents_html, contents_text, attachments
-                            )
+                        fetch_attachment_content = PYLIBRUS_CONFIG.fetch_attachments and librus_user.notify.is_email()
+                        msg_content_or_none = scraper.fetch_msg(msg_path, fetch_attachment_content)
+                        if msg_content_or_none is None:
+                            continue
+                        sender, subject, date, contents_html, contents_text, attachments = msg_content_or_none
+                        msg = notifier.add_msg(
+                            msg_path, PYLIBRUS_CONFIG.inbox_folder_id, sender, date, subject, contents_html, contents_text, attachments
+                        )
 
-                        if PYLIBRUS_CONFIG.send_message == "unsent" and msg.email_sent:
-                            print(f"Do not send '{msg.subject}' (message already sent)")
-                        elif PYLIBRUS_CONFIG.send_message == "unread" and read:
-                            print(f"Do not send '{msg.subject}' (message already read)")
-                        else:
-                            notifier.notify(msg)
-                            msg.email_sent = True
-            if len(librus_users) > 1:
-                time.sleep(60)
-        if pylibrus_config.loop_and_sleep_seconds <= 0:
-            break
-        time.sleep(pylibrus_config.loop_and_sleep_seconds)
+                    if PYLIBRUS_CONFIG.send_message == "unsent" and msg.email_sent:
+                        print(f"Do not send '{msg.subject}' (message already sent)")
+                    elif PYLIBRUS_CONFIG.send_message == "unread" and read:
+                        print(f"Do not send '{msg.subject}' (message already read)")
+                    else:
+                        notifier.notify(msg)
+                        msg.email_sent = True
+        if i != len(librus_users) - 1:
+            time.sleep(PYLIBRUS_CONFIG.debug)
 
-
-    # TEST MISSING LIBRUS USER  AND LIBRUS_PARAM!
-    # pylibrus.ini.example
-    # install.sh bash script
-    # maybe? sent attachments to slack
-    # README.md - fix
 if __name__ == "__main__":
     sys.exit(main())
