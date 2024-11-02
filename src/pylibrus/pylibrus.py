@@ -486,7 +486,7 @@ class LibrusScraper(object):
                     read = False
                     break
             msgs.append((link, read))
-
+        msgs.reverse()
         return msgs
 
 
@@ -686,6 +686,8 @@ def main():
                         else:
                             notifier.notify(msg)
                             msg.email_sent = True
+            if len(librus_users) > 1:
+                time.sleep(60)
         if pylibrus_config.loop_and_sleep_seconds <= 0:
             break
         time.sleep(pylibrus_config.loop_and_sleep_seconds)

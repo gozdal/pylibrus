@@ -1,0 +1,1 @@
+cron: */30 * * * * python src/pylibrus/pylibrus.py
