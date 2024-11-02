@@ -1,0 +1,16 @@
+[project]
+name = "pylibrus"
+version = "1.0.0"
+authors = [
+    {name = "gozdal"}
+]
+description = "Message scraper from crappy Librus Synergia gradebook."
+readme = "README.md"
+requires-python = ">=3.8"
+
+dependencies = [
+    "beautifulsoup4==4.12.3",
+    "requests==2.32.3",
+    "sqlalchemy==2.0.36",
+    "user-agent==0.1.10",
+]
