@@ -28,6 +28,7 @@ Base = declarative_base()
 
 FAILED_TO_DOWNLOAD_ATTACHMENT_DATA = "Failed to download attachment data!"
 CONFIG_FILE_PATH = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "pylibrus.ini"))
+STORED_COOKIES_PATH = os.path.realpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "pylibrus_cookies.json"))
 TRUE_VALUES = ('yes', 'on', 'true', '1')
 FALSE_VALUES = ('no', 'off', 'false', '0')
 
@@ -56,7 +57,7 @@ class PyLibrusConfig:
     max_age_of_sending_msg_days: int = 4
     db_name: str = "pylibrus.sqlite"
     debug: bool = False
-    sleep_between_librus_users: int = 180
+    sleep_between_librus_users: int = 10
     inbox_folder_id: int = dataclasses.field(default=5, init=False)  # Odebrane
 
 
@@ -266,13 +267,14 @@ class LibrusScraper(object):
     def msg_folder_path(folder_id):
         return f"/wiadomosci/{folder_id}"
 
-    def __init__(self, login, passwd, debug=False):
+    def __init__(self, login, passwd, debug=False, cookies=None):
         self._login = login
         self._passwd = passwd
         self._session = requests.session()
         self._user_agent = generate_user_agent()
         self._last_folder_msg_path = None
         self._last_url = self.synergia_url_from_path("/")
+        self.set_cookies(cookies)
 
         if debug:
             http_client.HTTPConnection.debuglevel = 1
@@ -311,6 +313,7 @@ class LibrusScraper(object):
         debug(f"{method} {path} referrer={referer}")
         self._set_headers(referer, kwargs)
         url = self.synergia_url_from_path(path)
+        print(f"Making reuqest: {method} {url} with cookies: {self._session.cookies.get_dict()}")
         if method == "get":
             resp = self._session.get(url, **kwargs)
         elif method == "post":
@@ -326,7 +329,24 @@ class LibrusScraper(object):
     def _get(self, path, referer=None, **kwargs):
         return self._request("get", path, referer, **kwargs)
 
+    def clear_cookies(self):
+        self._session.cookies.clear()
+
+    def set_cookies(self, cookies_dict):
+        self._cookies = cookies_dict if cookies_dict else {}
+        self._session.cookies.update(requests.utils.cookiejar_from_dict(self._cookies))
+
+    def are_cookies_valid(self):
+        self._session.get(self.synergia_url_from_path("/rodzic/index"))
+        msgs = self.msgs_from_folder(PYLIBRUS_CONFIG.inbox_folder_id)
+        return len(msgs) > 0
+
     def __enter__(self):
+        if self.are_cookies_valid():
+            print("COOKIES ARE VALID!")
+            return self
+        print("COOKIS ARE NOT VALID - LOGIN!")
+        self.clear_cookies()
         oauth_auth_frag = "/OAuth/Authorization?client_id=46"
         oauth_auth_url = self.api_url_from_path(oauth_auth_frag)
         oauth_2fa_frag = "/OAuth/Authorization/2FA?client_id=46"
@@ -345,6 +365,7 @@ class LibrusScraper(object):
             },
         )
         self._api_get(oauth_2fa_frag, referer=oauth_auth_url)
+        self._cookies = self._session.cookies.get_dict()
         return self
 
     def __exit__(self, exc_type=None, exc_val=None, exc_tb=None):
@@ -632,6 +653,19 @@ def debug(msg):
     if PYLIBRUS_CONFIG.debug:
         print(msg)
 
+def store_cookies_in_file(cookies_per_login: dict):
+    with open(STORED_COOKIES_PATH, "w") as f:
+        f.write(json.dumps(cookies_per_login))
+
+def load_cookies_from_file():
+    cookies_per_login = {}
+    try:
+        with open(STORED_COOKIES_PATH, "r") as f:
+            cookies_per_login = json.loads(f.read())
+    except Exception:
+        pass
+    return cookies_per_login
+
 
 def main():
     global PYLIBRUS_CONFIG
@@ -658,8 +692,11 @@ def main():
         notifier.notify(msg)
         return 2
 
+    cookies_per_login = load_cookies_from_file()
+
     for i, librus_user in enumerate(librus_users):
-        with LibrusScraper(librus_user.login, librus_user.password, debug=PYLIBRUS_CONFIG.debug) as scraper:
+        with LibrusScraper(librus_user.login, librus_user.password, debug=PYLIBRUS_CONFIG.debug, cookies=cookies_per_login.get(librus_user.login)) as scraper:
+            cookies_per_login[librus_user.login] = scraper._cookies
             with LibrusNotifier(librus_user, db_name=PYLIBRUS_CONFIG.db_name) as notifier:
                 msgs = scraper.msgs_from_folder(PYLIBRUS_CONFIG.inbox_folder_id)
                 for msg_path, read in msgs:
@@ -686,7 +723,8 @@ def main():
                         notifier.notify(msg)
                         msg.email_sent = True
         if i != len(librus_users) - 1:
-            time.sleep(PYLIBRUS_CONFIG.debug)
+            time.sleep(PYLIBRUS_CONFIG.sleep_between_librus_users)
+    store_cookies_in_file(cookies_per_login)
 
 if __name__ == "__main__":
     sys.exit(main())
