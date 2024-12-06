@@ -1,1 +1,1 @@
-cron: */30 * * * * python src/pylibrus/pylibrus.py
+cron: */5 * * * * python src/pylibrus/pylibrus.py
