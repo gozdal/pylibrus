@@ -1,16 +1,81 @@
 [project]
 name = "pylibrus"
-version = "1.0.0"
+version = "0.1.0"
 authors = [
     {name = "gozdal"}
 ]
 description = "Message scraper from crappy Librus Synergia gradebook."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.12"
 
 dependencies = [
     "beautifulsoup4==4.12.3",
     "requests==2.32.3",
     "sqlalchemy==2.0.36",
     "user-agent==0.1.10",
+]
+
+[tool.uv]
+dev-dependencies = [
+    "ruff>=0.8.4",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.format]
+# Like Black, use double quotes for strings.
+quote-style = "double"
+
+# Like Black, indent with spaces, rather than tabs.
+indent-style = "space"
+
+# Like Black, respect magic trailing commas.
+skip-magic-trailing-comma = false
+
+# Like Black, automatically detect the appropriate line ending.
+line-ending = "auto"
+
+[tool.ruff.lint]
+select = [
+    # pycodestyle
+    "E",
+    # Pyflakes
+    "F",
+    # isort
+    "I",
+    # bandit
+    "S",
+    # pyupgrade
+    "UP",
+    # comprehensions
+    "C4",
+    # commas
+    "COM",
+    # implicit-str-concat
+    "ISC",
+    # quotes
+    "Q",
+]
+
+# https://docs.astral.sh/ruff/formatter/#conflicting-lint-rules
+ignore = [
+    "COM812", # missing-trailing-comma
+    "COM819", # prohibited-trailing-comma
+    "D206", # indent-with-spaces
+    "D300", # triple-single-quotes
+    "E111", # indentation-with-invalid-multiple
+    "E114", # indentation-with-invalid-multiple-comment
+    "E117", # over-indented
+    "E501", # line-too-long
+    "E731", # Do not assign a `lambda` expression, use a `def`
+    "ISC001", # single-line-implicit-string-concatenation
+    "ISC002", # multi-line-implicit-string-concatenation
+    "Q000", # bad-quotes-inline-string
+    "Q001", # bad-quotes-multiline-string
+    "Q002", # bad-quotes-docstring
+    "Q003", # avoidable-escaped-quote
+    "S101", # Use of `assert` detected
+    "W191", # tab-indentation
 ]
