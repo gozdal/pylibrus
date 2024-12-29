@@ -12,6 +12,7 @@
 
 ; Name of sqlite DB file that will be used by pylibrus.
 ; File will be created if absent.
+; Can be configured globally or per child
 # db_name=pylibrus.sqlite
 
 ; How old messages should still be forwarded.
@@ -30,6 +31,8 @@
 [user:ChildName]
 librus_user=
 librus_pass=
+; optional, if not set global db_name is used
+;db_name=
 smtp_user=
 smtp_pass=
 smtp_server=

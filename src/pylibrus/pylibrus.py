@@ -55,10 +55,10 @@ def str_to_int(s: str):
 
 @dataclasses.dataclass(slots=True)
 class PyLibrusConfig:
+    workdir: str
     send_message: str = "unread"
     fetch_attachments: bool = True
     max_age_of_sending_msg_days: int = 4
-    db_name: str = "pylibrus.sqlite"
     debug: bool = False
     sleep_between_librus_users: int = 10
     inbox_folder_id: int = dataclasses.field(default=5, init=False)  # Odebrane
@@ -72,26 +72,26 @@ class PyLibrusConfig:
             raise ValueError("SEND_MESSAGE should be 'unread' or 'unsent'")
 
     @classmethod
-    def from_config(cls, config: ConfigParser) -> "PyLibrusConfig":
+    def from_config(cls, workdir: str, config: ConfigParser) -> "PyLibrusConfig":
         global_config = config["global"]
         return cls(
             send_message=global_config.get(PyLibrusConfig.send_message.__name__, None),
             fetch_attachments=global_config.getboolean(PyLibrusConfig.fetch_attachments.__name__, None),
             max_age_of_sending_msg_days=global_config.getint(PyLibrusConfig.max_age_of_sending_msg_days.__name__, None),
-            db_name=global_config.get(PyLibrusConfig.db_name.__name__, None),
             debug=global_config.getboolean(PyLibrusConfig.debug.__name__, None),
             sleep_between_librus_users=global_config.getint(PyLibrusConfig.sleep_between_librus_users.__name__, None),
             cookie_file=global_config.get(PyLibrusConfig.cookie_file.__name__, None),
+            workdir=workdir,
         )
 
     @classmethod
-    def from_env(cls) -> "PyLibrusConfig":
+    def from_env(cls, workdir: str) -> "PyLibrusConfig":
         return cls(
             send_message=os.environ.get("SEND_MESSAGE"),
             fetch_attachments=str_to_bool(os.environ.get("FETCH_ATTACHMENTS")),
             max_age_of_sending_msg_days=str_to_int(os.environ.get("MAX_AGE_OF_SENDING_MSG_DAYS")),
-            db_name=os.environ.get("DB_NAME"),
             debug=str_to_bool(os.environ.get("LIBRUS_DEBUG")),
+            workdir=workdir,
         )
 
 
@@ -181,6 +181,7 @@ class LibrusUser:
     password: str = dataclasses.field(repr=False)
     name: str
     notify: EmailNotify | WebhookNotify
+    db_name: str
 
     @classmethod
     def from_config(cls, config, section) -> "LibrusUser":
@@ -194,7 +195,10 @@ class LibrusUser:
             notify = WebhookNotify.from_config(config, section)
         else:
             raise ValueError(f"No valid notification method for {section}")
-        return cls(name=name, login=librus_user, password=librus_pass, notify=notify)
+        db_name = config[section].get("db_name")
+        if not db_name:
+            db_name = config["global"].get("db_name", "pylibrus.sqlite")
+        return cls(name=name, login=librus_user, password=librus_pass, notify=notify, db_name=db_name)
 
     @classmethod
     def from_env(cls) -> "LibrusUser":
@@ -203,6 +207,7 @@ class LibrusUser:
             password=os.environ.get("LIBRUS_PASS"),
             name=os.environ.get("LIBRUS_NAME"),
             notify=WebhookNotify.from_env() if str_to_bool(os.environ.get("WEBHOOK")) else EmailNotify.from_env(),
+            db_name=os.environ.get("DB_NAME"),
         )
 
     @classmethod
@@ -270,14 +275,15 @@ class LibrusScraper:
     def msg_folder_path(folder_id):
         return f"/wiadomosci/{folder_id}"
 
-    def __init__(self, login: str, passwd: str, config: PyLibrusConfig):
+    def __init__(self, login: str, passwd: str, pylibrus_config: PyLibrusConfig):
         self._login = login
         self._passwd = passwd
-        self._config = config
+        self._pylibrus_config = pylibrus_config
         self._session = requests.session()
         self._user_agent = generate_user_agent()
         self._last_folder_msg_path = None
         self._last_url = self.synergia_url_from_path("/")
+        self._cookie_path = Path(self._pylibrus_config.workdir) / self._pylibrus_config.cookie_file
 
         logging.basicConfig(
             level=logging.INFO,  # Set the logging level to INFO
@@ -286,7 +292,7 @@ class LibrusScraper:
                 logging.StreamHandler(sys.stdout)  # Log to stdout
             ],
         )
-        if config.debug:
+        if pylibrus_config.debug:
             http_client.HTTPConnection.debuglevel = 1
             logging.getLogger().setLevel(logging.DEBUG)
             requests_log = logging.getLogger("requests.packages.urllib3")
@@ -296,13 +302,12 @@ class LibrusScraper:
         self.load_cookies_from_file()
 
     def load_cookies_per_login(self):
-        if not os.path.exists(self._config.cookie_file):
-            logger.debug(f"{self._config.cookie_file} does not exist")
+        if not self._cookie_path.exists:
+            logger.debug(f"{self._cookie_path} does not exist")
         try:
-            with open(self._config.cookie_file) as f:
-                return json.loads(f.read())
+            return json.loads(self._cookie_path.read_text())
         except Exception as e:
-            logger.info(f"Could not load {self._config.cookie_file}: {e}")
+            logger.info(f"Could not load {self._cookie_path}: {e}")
             return {}
 
     def load_cookies_from_file(self) -> dict:
@@ -315,8 +320,7 @@ class LibrusScraper:
     def store_cookies_in_file(self):
         cookies_per_login = self.load_cookies_per_login()
         cookies_per_login[self._login] = self._session.cookies.get_dict()
-        with open(self._config.cookie_file, "w") as f:
-            f.write(json.dumps(cookies_per_login))
+        self._cookie_path.write_text(json.dumps(cookies_per_login))
 
     def _set_headers(self, referer, kwargs):
         if "headers" not in kwargs:
@@ -353,7 +357,7 @@ class LibrusScraper:
         elif method == "post":
             resp = self._session.post(url, **kwargs)
         else:
-            raise AssertionError(f"Unsupported method: {method}")
+            raise ValueError(f"Unsupported method: {method}")
         self._last_url = resp.url
         return resp
 
@@ -367,7 +371,7 @@ class LibrusScraper:
         self._session.cookies.clear()
 
     def are_cookies_valid(self):
-        msgs = self.msgs_from_folder(self._config.inbox_folder_id)
+        msgs = self.msgs_from_folder(self._pylibrus_config.inbox_folder_id)
         return len(msgs) > 0
 
     def __enter__(self):
@@ -508,7 +512,7 @@ class LibrusScraper:
         subject = self._find_msg_header(soup, "Temat")
         date_string = self._find_msg_header(soup, "Wysłano")
         date = datetime.datetime.strptime(date_string, "%Y-%m-%d %H:%M:%S")
-        if datetime.datetime.now() - date > datetime.timedelta(days=self._config.max_age_of_sending_msg_days):
+        if datetime.datetime.now() - date > datetime.timedelta(days=self._pylibrus_config.max_age_of_sending_msg_days):
             logger.info(f"Do not send '{subject}' (message too old, {date})")
             return None
         contents = soup.find_all(attrs={"class": "container-message-content"})[0]
@@ -540,14 +544,17 @@ class LibrusScraper:
 
 
 class LibrusNotifier:
-    def __init__(self, librus_user: LibrusUser, db_name):
+    def __init__(self, pylibrus_config: PyLibrusConfig, librus_user: LibrusUser):
+        self._pylibrus_config = pylibrus_config
         self._librus_user = librus_user
         self._engine = None
         self._session = None
-        self._db_name = db_name
 
     def _create_db(self):
-        self._engine = create_engine("sqlite:///" + self._db_name)
+        workdir_path = Path(self._pylibrus_config.workdir)
+        if not workdir_path.exists:
+            raise RuntimeError(f"Workdir {workdir_path} does not exist")
+        self._engine = create_engine(f"sqlite:///{workdir_path / self._librus_user.db_name}")
         Base.metadata.create_all(self._engine)
         session_maker = sessionmaker(bind=self._engine)
         self._session = session_maker()
@@ -687,19 +694,71 @@ class LibrusNotifier:
         server.close()
 
 
-def read_pylibrus_config(config_file_path: str) -> tuple[PyLibrusConfig, list[LibrusUser]]:
-    if os.path.exists(config_file_path):
-        logger.info(f"Read config from file: {config_file_path}")
+def read_pylibrus_config(workdir: str, config_file: str) -> tuple[PyLibrusConfig, list[LibrusUser]]:
+    config_path = Path(workdir) / config_file
+    if config_path.exists():
+        logger.info(f"Read config from file: {config_path}")
         config = configparser.ConfigParser()
-        config.read(config_file_path)
-        pylibrus_config = PyLibrusConfig.from_config(config)
+        config.read(config_path)
+        pylibrus_config = PyLibrusConfig.from_config(workdir, config)
         librus_users = LibrusUser.load_librus_users_from_config(config)
         return pylibrus_config, librus_users
     else:
-        logger.info(f"Could not find config file: {config_file_path}, read config from env variables")
-        pylibrus_config = PyLibrusConfig.from_env()
+        logger.info(f"Could not find config file: {config_path}, read config from env variables")
+        pylibrus_config = PyLibrusConfig.from_env(workdir)
         librus_users = [LibrusUser.from_env()]
     return pylibrus_config, librus_users
+
+
+def send_test_notification(pylibrus_config: PyLibrusConfig, librus_user: LibrusUser):
+    notifier = LibrusNotifier(pylibrus_config, librus_user)
+    msg = Msg(
+        url="/fake/object",
+        folder="Odebrane",
+        sender="Testing sender Żółta Jaźń [Nauczyciel]",
+        date=datetime.datetime.now(),
+        subject="Testing subject with żółta jaźć",
+        contents_html="<h2>html content with żółta jażń</h2>",
+        contents_text="text content with żółta jaźń",
+    )
+    logger.info("Sending testing notify")
+    notifier.notify(msg)
+    return 2
+
+
+def handle_user(pylibrus_config: PyLibrusConfig, librus_user: LibrusUser):
+    with LibrusScraper(librus_user.login, librus_user.password, pylibrus_config=pylibrus_config) as scraper:
+        with LibrusNotifier(pylibrus_config, librus_user) as notifier:
+            msgs = scraper.msgs_from_folder(pylibrus_config.inbox_folder_id)
+            for msg_path, read in msgs:
+                msg = notifier.get_msg(msg_path)
+
+                if not msg:
+                    logger.debug(f"Fetch {msg_path}")
+
+                    fetch_attachment_content = pylibrus_config.fetch_attachments and librus_user.notify.is_email()
+                    msg_content_or_none = scraper.fetch_msg(msg_path, fetch_attachment_content)
+                    if msg_content_or_none is None:
+                        continue
+                    sender, subject, date, contents_html, contents_text, attachments = msg_content_or_none
+                    msg = notifier.add_msg(
+                        msg_path,
+                        pylibrus_config.inbox_folder_id,
+                        sender,
+                        date,
+                        subject,
+                        contents_html,
+                        contents_text,
+                        attachments,
+                    )
+
+                if pylibrus_config.send_message == "unsent" and msg.email_sent:
+                    logger.info(f"Do not send '{msg.subject}' (message already sent)")
+                elif pylibrus_config.send_message == "unread" and read:
+                    logger.info(f"Do not send '{msg.subject}' (message already read)")
+                else:
+                    notifier.notify(msg)
+                    msg.email_sent = True
 
 
 def parse_args():
@@ -719,69 +778,27 @@ def parse_args():
     )
     paths.add_argument("--workdir", metavar="PATH", help="working directory with config and DBs", default=Path.cwd())
 
+    tests = parser.add_argument_group("Test notifications")
+    tests.add_argument("--test-notify", action="store_true", default=False, help="send a test notification")
+
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
 
-    pylibrus_config, librus_users = read_pylibrus_config(Path(args.workdir) / args.config)
+    pylibrus_config, librus_users = read_pylibrus_config(args.workdir, args.config)
     pylibrus_config.debug |= args.debug
     pylibrus_config.cookie_file = args.cookies
     logger.info(f"Config: {pylibrus_config}")
     for user in librus_users:
         logger.info(f"User: {user}")
 
-    test_notify = str_to_bool(os.environ.get("TEST_EMAIL_CONF")) or str_to_bool(os.environ.get("TEST_NOTIFY"))
-
-    if test_notify:
-        notifier = LibrusNotifier(librus_users[0], db_name=pylibrus_config.db_name)
-        msg = Msg(
-            url="/fake/object",
-            folder="Odebrane",
-            sender="Testing sender Żółta Jaźń [Nauczyciel]",
-            date=datetime.datetime.now(),
-            subject="Testing subject with żółta jaźć",
-            contents_html="<h2>html content with żółta jażń</h2>",
-            contents_text="text content with żółta jaźń",
-        )
-        print("Sending testing notify")
-        notifier.notify(msg)
-        return 2
+    if args.test_notify:
+        return send_test_notification(pylibrus_config, librus_users[0])
 
     for i, librus_user in enumerate(librus_users):
-        with LibrusScraper(librus_user.login, librus_user.password, config=pylibrus_config) as scraper:
-            with LibrusNotifier(librus_user, db_name=pylibrus_config.db_name) as notifier:
-                msgs = scraper.msgs_from_folder(pylibrus_config.inbox_folder_id)
-                for msg_path, read in msgs:
-                    msg = notifier.get_msg(msg_path)
-
-                    if not msg:
-                        logger.debug(f"Fetch {msg_path}")
-
-                        fetch_attachment_content = pylibrus_config.fetch_attachments and librus_user.notify.is_email()
-                        msg_content_or_none = scraper.fetch_msg(msg_path, fetch_attachment_content)
-                        if msg_content_or_none is None:
-                            continue
-                        sender, subject, date, contents_html, contents_text, attachments = msg_content_or_none
-                        msg = notifier.add_msg(
-                            msg_path,
-                            pylibrus_config.inbox_folder_id,
-                            sender,
-                            date,
-                            subject,
-                            contents_html,
-                            contents_text,
-                            attachments,
-                        )
-
-                    if pylibrus_config.send_message == "unsent" and msg.email_sent:
-                        logger.info(f"Do not send '{msg.subject}' (message already sent)")
-                    elif pylibrus_config.send_message == "unread" and read:
-                        logger.info(f"Do not send '{msg.subject}' (message already read)")
-                    else:
-                        notifier.notify(msg)
-                        msg.email_sent = True
+        handle_user(pylibrus_config, librus_user)
         if i != len(librus_users) - 1:
             time.sleep(pylibrus_config.sleep_between_librus_users)
 
