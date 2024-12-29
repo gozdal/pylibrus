@@ -109,3 +109,4 @@ pylibrus.sqlite
 .idea/
 /Pipfile.lock
 pylibrus.ini
+pylibrus_cookies.json
